@@ -1,119 +1,130 @@
-/*
-  Скетч к проекту "Часы из часов"
-  Страница проекта (схемы, описания): https://alexgyver.ru/disp-clock/
-  Исходники на GitHub: https://github.com/AlexGyver/SegmentMonitor
-  Нравится, как написан и закомментирован код? Поддержи автора! https://alexgyver.ru/support_alex/
-  Автор: AlexGyver Technologies, 2022
-  http://AlexGyver.ru/
-*/
-
-// - проведена оптимизация бегущей строки и вообще расчётов
-// - оптимизировано деление и остаток на 6
-
-// ВНИМАНИЕ! Это "playground", а не полноценный проект. Реализован
-// вывод как на графический дисплей, подключен GyverGFX, можно рисовать
-// и выводить битмапы. Также сделан вывод часов (шрифт в комплекте)
-// САМИ ЧАСЫ Я НЕ ДЕЛАЛ, ЭТО ПРОСТО ДЕМОНСТРАЦИЯ!
-// если вам нужно - пишите, я помогу
-
+#include <GyverPortal.h>
+#include <EEPROM.h>
+#include <NTPClient.h>
 #include "MAX7219.h"
-#include "dig3.h"   // шрифт для часов. Можно переключить между dig1, dig2, dig3
+#include "dig1.h"
+#include "dig2.h"
+#include "dig3.h" // шрифт для часов
+#include "pics.h"
+#include "GyverTimer.h"
 
-#define MAX_CS D8  // пин CS
-#define DW 6      // кол-во МИКРОСХЕМ по горизонтали
-#define DH 3      // кол-во МИКРОСХЕМ по вертикали
+struct LoginPass {
+  char ssid[20];
+  char pass[20];
+  int gmt;
+  int bright;
+  int fonttype;
+  int selmode;
+};
+LoginPass lp;
 
-#define DWW (DW*4)  // расчёт кол-ва индикаторов гориз.
-#define DHH (DH*2)  // расчёт кол-ва индикаторов верт.
+
+#define DW 6  // кол-во МИКРОСХЕМ по горизонтали
+#define DH 3  // кол-во МИКРОСХЕМ по вертикали
+
+#define DWW (DW*4)
+#define DHH (DH*2)
 
 // указать пин CS!
-MaxDisp<MAX_CS, DW, DH> disp;
+MaxDisp<D8, DW, DH> disp;
 
-// битмап логотипа
-// сделан в ImageProcessor https://github.com/AlexGyver/imageProcessor
-// с настройками 8pix/byte, BW
-const uint8_t wrench_43x36[] PROGMEM = {
-  0x00, 0x1F, 0xF8, 0x00, 0x3F, 0x00,
-  0x00, 0x7F, 0xE0, 0x00, 0x7F, 0x80,
-  0x01, 0xFF, 0x00, 0x00, 0xFE, 0x00,
-  0x03, 0xFC, 0x00, 0x01, 0xF8, 0x00,
-  0x07, 0xF8, 0x00, 0x01, 0xF8, 0x00,
-  0x07, 0xF8, 0x00, 0x01, 0xF8, 0x00,
-  0x0F, 0xF8, 0x00, 0x03, 0xFC, 0x20,
-  0x0F, 0xFC, 0x00, 0x03, 0x8C, 0xE0,
-  0x0F, 0xFE, 0x00, 0x07, 0x0F, 0xE0,
-  0x3F, 0xFE, 0x00, 0x07, 0x0F, 0xE0,
-  0x7F, 0x7F, 0x00, 0x0F, 0x1F, 0xC0,
-  0x7E, 0x1F, 0x80, 0x1F, 0xFF, 0x80,
-  0xFC, 0x0F, 0xC0, 0x3F, 0xFC, 0x00,
-  0x7C, 0x07, 0xE0, 0x7F, 0xE0, 0x00,
-  0x38, 0x03, 0xF0, 0xFF, 0x80, 0x00,
-  0x00, 0x01, 0xF8, 0xFF, 0x00, 0x00,
-  0x00, 0x00, 0xFF, 0x7E, 0x00, 0x00,
-  0x00, 0x00, 0x7F, 0xDC, 0x00, 0x00,
-  0x00, 0x00, 0x3F, 0xE8, 0x00, 0x00,
-  0x00, 0x00, 0x1F, 0xF0, 0x00, 0x00,
-  0x00, 0x00, 0x5F, 0xF8, 0x00, 0x00,
-  0x00, 0x00, 0xFF, 0xFC, 0x00, 0x00,
-  0x00, 0x01, 0xEF, 0xFE, 0x00, 0x00,
-  0x00, 0x03, 0xF7, 0xFF, 0x00, 0x00,
-  0x00, 0x07, 0xFB, 0xFF, 0x80, 0x00,
-  0x00, 0x0F, 0xFD, 0xFF, 0xC0, 0x00,
-  0x00, 0x1F, 0xF8, 0xFF, 0xE0, 0x00,
-  0x00, 0x3F, 0xF0, 0x7F, 0xF0, 0x00,
-  0x00, 0xFF, 0xE0, 0x3F, 0xF8, 0x00,
-  0x01, 0xFF, 0xC0, 0x1F, 0xFC, 0x00,
-  0x01, 0xFF, 0xC0, 0x0F, 0xFE, 0x00,
-  0x03, 0x9F, 0x80, 0x07, 0xFE, 0x00,
-  0x03, 0x0F, 0x00, 0x03, 0xFE, 0x00,
-  0x03, 0x8E, 0x00, 0x01, 0xFC, 0x00,
-  0x01, 0xDC, 0x00, 0x00, 0xF8, 0x00,
-  0x00, 0xF8, 0x00, 0x00, 0x70, 0x00,
-};
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
+GTimer_ms myTimer; 
+GyverPortal ui;
 
+
+
+void build() {
+  GP.BUILD_BEGIN();
+  GP.THEME(GP_DARK);
+
+  GP.FORM_BEGIN("/login");
+  GP.LABEL("SSID");
+  GP.TEXT("lg", "SSID", lp.ssid);
+  GP.BREAK();
+  GP.LABEL("PASSWORD");
+  GP.TEXT("ps", "Password", lp.pass);
+  GP.BREAK();
+  GP.LABEL("GMT");
+  GP.NUMBER("gmt", "gmt", lp.gmt);
+  GP.BREAK();
+  GP.LABEL("Brightness");
+  GP.NUMBER("brght", "brght", lp.bright);
+  GP.BREAK();
+  GP.LABEL("Font");
+  GP.NUMBER("font", "font", lp.fonttype);
+  GP.BREAK();
+  GP.LABEL("Mode");
+  GP.NUMBER("mode", "mode", lp.selmode);
+  GP.SUBMIT("Submit");
+  GP.FORM_END();
+
+  GP.BUILD_END();
+}
+
+uint8_t d_width = 20;
 void setup() {
+  delay(2000);
+  Serial.begin(115200);
+  Serial.println();
+  myTimer.setInterval(500);
+  // читаем логин пароль из памяти
+  EEPROM.begin(100);
+  EEPROM.get(0, lp);
+  display_setup();
+  timeClient.setTimeOffset(lp.gmt*3600);//Сдвиг часового пояса
+  // если кнопка нажата - открываем портал
+  pinMode(D2, INPUT_PULLUP);
+  
+  // запускаем портал
+  ui.attachBuild(build);
+  ui.start();
+  ui.attach(action);
+  
+  if (!digitalRead(D2)) 
+    loginPortal();
+
+  if (lp.fonttype == 0)
+    d_width = 23;
+  else if (lp.fonttype == 1)
+    d_width = 17;
+  else if (lp.fonttype == 2)
+    d_width = 20;
+  // пытаемся подключиться
+  Serial.print("Connect to: ");
+  Serial.println(lp.ssid);
+  running("Подключение");
+  running(lp.ssid);
+  
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(lp.ssid, lp.pass);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("Connected! Local IP: ");
+  running("Подключено");  
+  running(WiFi.localIP().toString());  
+
+  Serial.println(WiFi.localIP());
+}
+
+void display_setup(){
   randomSeed(analogRead(0));
   disp.begin();
-  disp.setBright(10);
+  disp.setBright(lp.bright);
   disp.textDisplayMode(GFX_ADD);
 }
 
-void loop() {
-  // выбери эффект, который будет воспроизводиться
-  //bigBall();
-  //net();
-  //party();
-  clock_e();
-  //running();
-  //segTest1();
-  //segTest2();
+void running(String txt) {
+  char Buf[50];
+  txt.toCharArray(Buf, 50);
+  running(Buf);
 }
-
-void segTest2() {
-  uint8_t b = 1;
-  for (int i = 0; i < 8; i++) {
-    disp.fill(b);
-    disp.update();
-    delay(300);
-    b <<= 1;
-  }
-}
-
-void segTest1() {
-  for (int y = 0; y < DHH; y++) {
-    for (int x = 0; x < DWW; x++) {
-      disp.clear();
-      disp.setByte(x, y, 0xff);
-      disp.update();
-      delay(100);
-    }
-  }
-}
-
-void running() {
-  // бегущая
+void running(char* txt) {
   disp.setScale(3);
-  char* txt = "Лайк, подписка, колокольчик! =) AlexGyver Show";
   int w = strlen(txt) * 5 * 3 + disp.W();
   for (int x = disp.W(); x > -w; x--) {
     disp.clear();
@@ -124,38 +135,63 @@ void running() {
   }
 }
 
+void loginPortal() {
+  Serial.println("Portal start");
+  running("Режим настройки");  
+  // запускаем точку доступа
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("WiFi Clocks");
 
-void drawDigit(byte dig, int x) {
-#ifdef __AVR__
-  disp.drawBitmap(x, 0, (const uint8_t*)pgm_read_word(&(digs[dig])), d_width, 36, 0);
-#else
-  disp.drawBitmap(x, 0, (const uint8_t*)pgm_read_dword(&(digs[dig])), d_width, 36, 0);
-#endif
+
+  // работа портала
+  while (ui.tick());
 }
 
-void drawClock(byte h, byte m, bool dots) {
-  disp.clear();
-  if (h > 9) drawDigit(h / 10, 0);
-  drawDigit(h % 10, d_width + 2);
-  if (dots) {
-    disp.setByte(11, 2, 0b0011101);
-    disp.setByte(11, 4, 0b1100011);
+void action(GyverPortal& p) {
+  if (p.form("/login")) {      // кнопка нажата
+    p.copyStr("lg", lp.ssid);  // копируем себе
+    p.copyStr("ps", lp.pass);
+    p.copyInt("gmt", lp.gmt);
+    p.copyInt("brght", lp.bright);
+    p.copyInt("font", lp.fonttype);
+    p.copyInt("mode", lp.selmode);
+    EEPROM.put(0, lp);              // сохраняем
+    EEPROM.commit();                // записываем
+    WiFi.softAPdisconnect();        // отключаем AP
+    running("Сохранение...");  
+    ESP.restart();
   }
-  drawDigit(m / 10, 95 - d_width * 2 - 3);
-  drawDigit(m % 10, 95 - d_width);
-  disp.update();
 }
 
-void clock_e() {
-  // часы
-  static int h = 22, m = 30;
-  static volatile bool d;
+void loop() {
+ switch(lp.selmode){
+  case 1:
+    clocks();
+    break;
+  case 2:
+    party();
+    break;
+  case 3:
+    net();
+    break;
+  case 4:
+    bigBall();
+    break;
+ }
+  ui.tick();
+}
 
-  drawClock(h, m, d);
-  d = !d;
-  if (++m >= 60) m = 0, h++;
-  if (h >= 24) h = 0;
-  delay(500);
+void clocks(){
+   if (myTimer.isReady()){
+    timeClient.update();
+    int h = timeClient.getHours(); 
+    int m = timeClient.getMinutes();
+    Serial.println(timeClient.getFormattedTime());
+  
+    static volatile bool d;
+    drawClock(h, m, d);
+    d = !d;
+  }
 }
 
 void party() {
@@ -175,7 +211,7 @@ void party() {
 
   delay(700);
   disp.clear();
-  disp.drawBitmap(26, 0, wrench_43x36, 43, 36);
+  disp.drawBitmap(26, 0, wrench_43x36, 43, 36, 0, 0);
   disp.update();
 }
 
@@ -222,5 +258,34 @@ void bigBall() {
   if (y >= (disp.H() - radius) * 10 || y < radius * 10) velY = -velY;
 
   disp.circle(x / 10, y / 10, radius, GFX_FILL);
+  disp.update();
+}
+
+void drawDigit(byte dig, int x) {
+  switch(lp.fonttype)
+  {
+    case 0:
+      disp.drawBitmap(x, 0, (const uint8_t*)pgm_read_dword(&(digs1[dig])), d_width, 36, 0);
+      break;
+    case 1:
+      disp.drawBitmap(x, 0, (const uint8_t*)pgm_read_dword(&(digs2[dig])), d_width, 36, 0);
+      break;
+    case 2:
+      disp.drawBitmap(x, 0, (const uint8_t*)pgm_read_dword(&(digs3[dig])), d_width, 36, 0);
+      break;
+  }
+}
+
+void drawClock(byte h, byte m, bool dots) {
+  disp.clear();
+  //if (h < 9) 
+    drawDigit(h / 10, 0);
+  drawDigit(h % 10, d_width + 2);
+  if (dots) {
+    disp.setByte(11, 2, 0b0011101);
+    disp.setByte(11, 4, 0b1100011);
+  }
+  drawDigit(m / 10, 95 - d_width * 2 - 3);
+  drawDigit(m % 10, 95 - d_width);
   disp.update();
 }

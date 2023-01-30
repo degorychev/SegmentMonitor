@@ -379,7 +379,7 @@ const uint8_t dig9_23x36[] PROGMEM = {
   0x03, 0xC0, 0x00, 
 };
 
-const uint8_t* const digs[] PROGMEM = {
+const uint8_t* const digs1[] PROGMEM = {
   dig0_23x36,
   dig1_23x36,
   dig2_23x36,
@@ -391,5 +391,3 @@ const uint8_t* const digs[] PROGMEM = {
   dig8_23x36,
   dig9_23x36,
 };
-
-const uint8_t d_width = 23;
