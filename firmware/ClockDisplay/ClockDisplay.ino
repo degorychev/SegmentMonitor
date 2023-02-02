@@ -17,6 +17,8 @@ struct LoginPass {
   int bright;
   int fonttype;
   int selmode;
+  int speed;
+  int fixtime;
 };
 LoginPass lp;
 
@@ -32,10 +34,13 @@ MaxDisp<D8, DW, DH> disp;
 
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
-GTimer_ms myTimer;
+GTimer_ms dotsTimer;
 GTimer_ms partyTimer;
+GTimer_ms speedTimer;
+GTimer_ms fixTimer;
 GyverPortal ui(&LittleFS);
 EncButton2<EB_BTN> butt1(INPUT_PULLUP, D2);
+EncButton2<EB_BTN> butt2(INPUT_PULLUP, D3);
 
 
 
@@ -56,6 +61,12 @@ void build() {
   GP.LABEL("Brightness");
   GP.NUMBER("brght", "brght", lp.bright);
   GP.BREAK();
+  GP.LABEL("Speed");
+  GP.NUMBER("speed", "speed", lp.speed);
+  GP.BREAK();
+  GP.LABEL("FixTime");
+  GP.NUMBER("fixtime", "fixtime", lp.fixtime);
+  GP.BREAK();
   GP.LABEL("Font");
   GP.NUMBER("font", "font", lp.fonttype);
   GP.BREAK();
@@ -75,12 +86,14 @@ void setup() {
   delay(2000);
   Serial.begin(115200);
   Serial.println();
-  myTimer.setInterval(500);
+  dotsTimer.setInterval(500);
   partyTimer.setInterval(800);
   // читаем логин пароль из памяти
   EEPROM.begin(100);
   EEPROM.get(0, lp);
   randomSeed(analogRead(0));
+  speedTimer.setInterval(lp.speed);
+  fixTimer.setInterval(lp.fixtime);
   display_setup();
   timeClient.setTimeOffset(lp.gmt * 3600); //Сдвиг часового пояса
 
@@ -167,6 +180,8 @@ void action(GyverPortal& p) {
     p.copyInt("brght", lp.bright);
     p.copyInt("font", lp.fonttype);
     p.copyInt("mode", lp.selmode);
+    p.copyInt("speed", lp.speed);
+    p.copyInt("fixtime", lp.fixtime);
     EEPROM.put(0, lp);              // сохраняем
     EEPROM.commit();                // записываем
     WiFi.softAPdisconnect();        // отключаем AP
@@ -181,33 +196,60 @@ void action(GyverPortal& p) {
 //}
 void loop() {
   butt1.tick();
+  butt2.tick();
   ui.tick();
-  if (butt1.click())
+  if (butt1.click()){
+    lp.bright++;
+    if(lp.bright>15)
+      lp.bright=15;
+    disp.setBright(lp.bright);
+  }
+  if (butt2.click()){
+    lp.bright--;
+    if(lp.bright<0)
+      lp.bright=0;
+    disp.setBright(lp.bright);
+  }
+  if (butt1.hasClicks(2))
   {
-    Serial.println("click");
+    Serial.println("double click1");
     lp.selmode++;
     if (lp.selmode == 5)
       lp.selmode = 1;
   }
+  if (butt2.hasClicks(2))
+  {
+    Serial.println("double click2");
+    lp.selmode--;
+    if (lp.selmode == 0)
+      lp.selmode = 4;
+  }
 
-  switch (lp.selmode) {
-    case 1:
-      clocks();
-      break;
-    case 2:
-      party();
-      break;
-    case 3:
-      net();
-      break;
-    case 4:
-      bigBall();
-      break;
+  
+  if (fixTimer.isReady()) {
+    display_setup();//Чиниим сегменты
+  }
+
+  if (speedTimer.isReady()) {
+    switch (lp.selmode) {
+      case 1:
+        clocks();
+        break;
+      case 2:
+        party();
+        break;
+      case 3:
+        net();
+        break;
+      case 4:
+        bigBall();
+        break;
+    }
   }
 }
 
 void clocks() {
-  if (myTimer.isReady()) {
+  if (dotsTimer.isReady()) {
     timeClient.update();
     int h = timeClient.getHours();
     int m = timeClient.getMinutes();
@@ -215,15 +257,13 @@ void clocks() {
 
 
     static volatile bool d;
-    if (m == 25)
-      display_setup();//Чиниим сегменты
     drawClock(h, m, d);
     d = !d;
   }
 }
 
 void party() {
-  static volatile int partyMode=0;
+  static volatile int partyMode = 0;
   disp.setScale(3);
   if (partyTimer.isReady()) {
     switch (partyMode) {
