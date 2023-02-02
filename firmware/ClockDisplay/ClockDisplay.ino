@@ -1,6 +1,7 @@
 #include <GyverPortal.h>
 #include <EEPROM.h>
 #include <NTPClient.h>
+#include <LittleFS.h>
 #include "MAX7219.h"
 #include "dig1.h"
 #include "dig2.h"
@@ -31,7 +32,7 @@ MaxDisp<D8, DW, DH> disp;
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "europe.pool.ntp.org", 0, 60000);
 GTimer_ms myTimer; 
-GyverPortal ui;
+GyverPortal ui(&LittleFS);
 
 
 
@@ -72,6 +73,7 @@ void setup() {
   // читаем логин пароль из памяти
   EEPROM.begin(100);
   EEPROM.get(0, lp);
+  randomSeed(analogRead(0));
   display_setup();
   timeClient.setTimeOffset(lp.gmt*3600);//Сдвиг часового пояса
   // если кнопка нажата - открываем портал
@@ -80,7 +82,12 @@ void setup() {
   // запускаем портал
   ui.attachBuild(build);
   ui.start();
+  ui.enableOTA();
   ui.attach(action);
+  
+  if (!LittleFS.begin()) 
+    Serial.println("FS Error");
+  ui.downloadAuto(true);
   
   if (!digitalRead(D2)) 
     loginPortal();
@@ -94,7 +101,7 @@ void setup() {
   // пытаемся подключиться
   Serial.print("Connect to: ");
   Serial.println(lp.ssid);
-  running("Подключение");
+  running("Clock V2");
   running(lp.ssid);
   
   WiFi.mode(WIFI_STA);
@@ -112,7 +119,6 @@ void setup() {
 }
 
 void display_setup(){
-  randomSeed(analogRead(0));
   disp.begin();
   disp.setBright(lp.bright);
   disp.textDisplayMode(GFX_ADD);
@@ -187,8 +193,11 @@ void clocks(){
     int h = timeClient.getHours(); 
     int m = timeClient.getMinutes();
     Serial.println(timeClient.getFormattedTime());
-  
+
+   
     static volatile bool d;
+    if(m==25)
+      display_setup();//Чиниим сегменты
     drawClock(h, m, d);
     d = !d;
   }
